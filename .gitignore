@@ -1,0 +1,18 @@
+.env
+db/
+ENV/
+4_rag/db
+4_rag/books/*.txt
+Try-Markdown-RAG/db
+google-cloud-sdk/
+.tar.gz
+.tar.xz
+.tar.bz2
+.tar.7z
+.tar.wim
+.tar.iso
+.tar.lzma
+*.csv
+# 忽略 Google Cloud CLI 安装包
+*.tar.gz
+google-cloud-cli-linux-x86_64.tar.gz
