@@ -114,15 +114,11 @@ def parse_and_store_markdown_files(folder_path, chunk_size=1000, overlap_size=10
             # 格式化文件
             formatter = MarkdownFormatter()
             input_path = os.path.join(folder_path, f)
-            output_path = os.path.join(folder_path, 'formatted_' + f)
+            output_path = os.path.join(folder_path, f)
             formatter.format_file(input_path=input_path, output_path=output_path)
             
-            # 删除原文件
-            os.remove(input_path)
             
-            # 添加格式化后的文件到列表
-            markdown_files.append('formatted_' + f)  # 确保添加的是格式化后的文件名
-
+            markdown_files.append(f)
     all_documents = []
 
     parser = MarkdownParser(chunk_size=chunk_size, overlap_size=overlap_size)  # 创建 MarkdownParser 实例

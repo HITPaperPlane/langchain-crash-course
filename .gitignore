@@ -5,6 +5,7 @@ ENV/
 4_rag/books/*.txt
 Try-Markdown-RAG/db
 google-cloud-sdk/
+markdown-structure-splitter/
 .tar.gz
 .tar.xz
 .tar.bz2

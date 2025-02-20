@@ -1,45 +1,51 @@
 import re
 from bs4 import BeautifulSoup
 from langchain.docstore.document import Document
+from table_spliter import split_table  # 假设这是前面实现的表格拆分器
 
 class MarkdownParser:
     def __init__(self, chunk_size=1000, overlap_size=100):
         self.chunk_size = chunk_size
         self.overlap_size = overlap_size
         self.heading_pattern = re.compile(r'^(#+)\s*(.*)$', re.MULTILINE)
-        # 修改表格匹配模式，使其更宽松
         self.table_pattern = re.compile(r'<html>.*?<body>.*?<table>.*?</table>.*?</body>.*?</html>', re.DOTALL | re.IGNORECASE)
-        # self.table_pattern = re.compile(r'<html><body><table>.*?</table></body></html>', re.DOTALL)
 
     def parse_markdown_table(self, table_html):
-        """
-        解析HTML表格并尝试结构化表示，如果超过chunk_size则报错.
-        """
-        soup = BeautifulSoup(table_html, 'html.parser')
-        table = soup.find('table')
-        if not table:
-            return None
-
-        headers = [th.text.strip() for th in table.find_all('th')]
-        rows = []
-        for tr in table.find_all('tr'):
-            row_data = [td.text.strip() for td in tr.find_all('td')]
-            if row_data:  # 确保行不为空
-                rows.append(row_data)
-
-        # 构建表格的列表形式
-        table_list = [headers] + rows if headers else rows
-        table_string = str(table_list)
-
-        if len(table_string) <= self.chunk_size:
-            return table_list, table_string  # 返回列表形式和字符串形式
-        else:
-            raise ValueError("表格过大，无法装入一个chunk。")
-
+        """解析并拆分HTML表格，返回（子表列表，超大单元格列表）"""
+        try:
+            # 使用之前实现的表格拆分器
+            split_tables, oversized_cells = split_table(table_html, self.chunk_size)
+            
+            # 转换拆分后的表格结构为字符串
+            table_strings = []
+            for table in split_tables:
+                if table:
+                    # 转换为可读性更好的字符串格式
+                    header = table[0] if table else []
+                    rows = table[1:] if len(table) > 1 else []
+                    table_str = "表格内容:\n"
+                    table_str += "| " + " | ".join(header) + " |\n"
+                    table_str += "| " + " | ".join(["---"]*len(header)) + " |\n"
+                    for r in rows:
+                        table_str += "| " + " | ".join(r) + " |\n"
+                    table_strings.append(table_str.strip())
+            
+            # 处理超大单元格
+            oversized_texts = []
+            for cell in oversized_cells:
+                parts = cell.split("-", 1)
+                if len(parts) == 2:
+                    oversized_texts.append(f"超大单元格内容 ({parts[0]}): {parts[1]}")
+                else:
+                    oversized_texts.append(f"超大单元格内容: {cell}")
+            
+            return table_strings, oversized_texts
+        except Exception as e:
+            print(f"表格解析失败: {str(e)}")
+            return [], []
 
     def parse_markdown_to_documents(self, content):
-
-        print("开始解析 Markdown 文档...")  # 添加日志
+        print("开始解析 Markdown 文档...")
         sections = content.split('\n')
         paragraphs = []
         current_chunk = ""
@@ -48,45 +54,55 @@ class MarkdownParser:
             table_match = self.table_pattern.search(section)
             if table_match:
                 table_html = table_match.group(0)
-                print("尝试解析表格...")  # 添加日志
-                # 尝试将整个表格作为一个块
-                try:
-                    table_list, table_string = self.parse_markdown_table(table_html)
-                    if current_chunk:
-                        paragraphs.append(current_chunk)
-                        current_chunk = ""
-                    paragraphs.append(table_string)  # 直接添加表格的字符串表示
-                except ValueError as e:
-                    print(str(e))  # 打印错误信息
-                    raise  # 重新抛出异常，停止程序
-
-
-            elif self.heading_pattern.match(section):
+                print("发现表格，进行拆分处理...")
+                
+                # 解析并拆分表格
+                table_strings, oversized_texts = self.parse_markdown_table(table_html)
+                
+                # 处理当前积累的文本
                 if current_chunk:
                     paragraphs.append(current_chunk)
                     current_chunk = ""
-                # 不再处理标题，直接添加到chunk
+                
+                # 添加拆分后的表格内容
+                paragraphs.extend(table_strings)
+                
+                # 添加超大单元格到正文
+                paragraphs.extend(oversized_texts)
+
+            elif self.heading_pattern.match(section):
+                # 标题处理保持原有逻辑
+                if current_chunk:
+                    paragraphs.append(current_chunk)
+                    current_chunk = ""
                 current_chunk += section.strip() + "\n"
 
             else:
+                # 普通文本处理
                 if section.strip():
                     current_chunk += section.strip() + "\n"
 
-
-        if current_chunk:  # 处理最后一个chunk
+        # 处理最后剩余的文本
+        if current_chunk:
             paragraphs.append(current_chunk)
 
-
-        print("解析出的段落 (chunking 前):", paragraphs)  # 添加日志
-
+        print("开始分块处理...")
         documents = []
         for paragraph in paragraphs:
+            # 合并处理表格和普通文本的分块逻辑
             while len(paragraph) > self.chunk_size:
-                doc_chunk = paragraph[:self.chunk_size]
-                paragraph = paragraph[self.chunk_size - self.overlap_size:]
-                documents.append(Document(page_content=doc_chunk.strip()))
+                # 优先按段落分割
+                split_pos = paragraph.rfind('\n', 0, self.chunk_size)
+                if split_pos == -1:
+                    split_pos = self.chunk_size
+                
+                chunk = paragraph[:split_pos].strip()
+                if chunk:
+                    documents.append(Document(page_content=chunk))
+                paragraph = paragraph[split_pos:].lstrip()
+            
             if paragraph.strip():
                 documents.append(Document(page_content=paragraph.strip()))
 
-        print("Markdown 文档解析完成，共生成 {} 个文档分块".format(len(documents)))  # 添加日志
+        print(f"Markdown 解析完成，共生成 {len(documents)} 个文档分块")
         return documents
