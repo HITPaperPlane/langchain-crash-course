@@ -20,4 +20,6 @@ google-cloud-cli-linux-x86_64.tar.gz
 Try-Markdown-RAG/database_chunks.csv
 Try-Markdown-RAG/db/
 Try-Markdown-RAG/dataset/
+4_rag/books/
+Try-Markdown-RAG/markdown/
 poetry.lock
