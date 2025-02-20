@@ -1,25 +1,31 @@
+# 环境相关
 .env
-db/
 ENV/
-4_rag/db
-4_rag/books/*.txt
-Try-Markdown-RAG/db
-google-cloud-sdk/
-markdown-structure-splitter/
-.tar.gz
-.tar.xz
-.tar.bz2
-.tar.7z
-.tar.wim
-.tar.iso
-.tar.lzma
+
+# 数据库文件
+db/
+**/db/
+
+# 数据文件
 *.csv
-# 忽略 Google Cloud CLI 安装包
+*.txt
+*.zip
+
+# 压缩文件
 *.tar.gz
-google-cloud-cli-linux-x86_64.tar.gz
-Try-Markdown-RAG/database_chunks.csv
-Try-Markdown-RAG/db/
-Try-Markdown-RAG/dataset/new2016zh.zip
+*.tar.xz
+*.tar.bz2
+*.tar.7z
+*.tar.wim
+*.tar.iso
+*.tar.lzma
+
+# 特定项目文件
 4_rag/books/
 Try-Markdown-RAG/markdown/
+Try-Markdown-RAG/dataset/
+markdown-structure-splitter/
+google-cloud-sdk/
+
+# 依赖管理
 poetry.lock
