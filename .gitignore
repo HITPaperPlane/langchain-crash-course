@@ -17,3 +17,6 @@ markdown-structure-splitter/
 # 忽略 Google Cloud CLI 安装包
 *.tar.gz
 google-cloud-cli-linux-x86_64.tar.gz
+Try-Markdown-RAG/database_chunks.csv
+Try-Markdown-RAG/db/
+Try-Markdown-RAG/dataset/
