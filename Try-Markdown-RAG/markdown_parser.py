@@ -1,7 +1,7 @@
 import re
 from bs4 import BeautifulSoup
 from langchain.docstore.document import Document
-from table_spliter import split_table  # 假设这是前面实现的表格拆分器
+from table_spliter import split_table
 
 class MarkdownParser:
     def __init__(self, chunk_size=1000, overlap_size=100):
@@ -9,37 +9,66 @@ class MarkdownParser:
         self.overlap_size = overlap_size
         self.heading_pattern = re.compile(r'^(#+)\s*(.*)$', re.MULTILINE)
         self.table_pattern = re.compile(r'<html>.*?<body>.*?<table>.*?</table>.*?</body>.*?</html>', re.DOTALL | re.IGNORECASE)
+        self.current_headings = []  # 标题层级栈
+        self.active_headings = []   # 有效标题缓存
+
+    def _update_headings(self, level: str, title: str):
+        """智能更新标题层级"""
+        # 清理无效字符
+        title = title.strip().replace('\n', ' ')
+        
+        # 计算当前标题深度
+        current_depth = len(level) - 1
+        
+        # 修正层级异常
+        if current_depth > len(self.current_headings):
+            # 补齐缺失的中间层级
+            for _ in range(current_depth - len(self.current_headings)):
+                self.current_headings.append("未命名标题")
+        
+        # 截断到当前深度
+        self.current_headings = self.current_headings[:current_depth]
+        
+        # 添加/更新当前层级标题
+        if len(self.current_headings) == current_depth:
+            self.current_headings.append(title)
+        else:
+            self.current_headings[current_depth] = title
+        
+        # 缓存有效标题（长度校验）
+        self.active_headings = []
+        current_prefix = ""
+        for i, h in enumerate(self.current_headings):
+            new_prefix = f"{'#'*(i+1)} {h}"
+            if len(current_prefix) + len(new_prefix) + 2 <= self.chunk_size:
+                current_prefix += f" {new_prefix}" if current_prefix else new_prefix
+                self.active_headings.append(h)
+            else:
+                break
+
+    def _get_heading_prefix(self):
+        """生成安全的标题前缀"""
+        if not self.active_headings:
+            return ""
+        return '  '.join([f"{'#'*(i+1)} {h}" for i, h in enumerate(self.active_headings)])
 
     def parse_markdown_table(self, table_html):
-        """解析并拆分HTML表格，返回（子表列表，超大单元格列表）"""
+        """解析表格并保持当前标题上下文"""
         try:
-            # 使用之前实现的表格拆分器
+            # 保存当前标题状态
+            original_headings = self.current_headings.copy()
+            original_active = self.active_headings.copy()
+            
             split_tables, oversized_cells = split_table(table_html, self.chunk_size)
             
-            # 转换拆分后的表格结构为字符串
-            table_strings = []
-            for table in split_tables:
-                if table:
-                    # 转换为可读性更好的字符串格式
-                    header = table[0] if table else []
-                    rows = table[1:] if len(table) > 1 else []
-                    table_str = "表格内容:\n"
-                    table_str += "| " + " | ".join(header) + " |\n"
-                    table_str += "| " + " | ".join(["---"]*len(header)) + " |\n"
-                    for r in rows:
-                        table_str += "| " + " | ".join(r) + " |\n"
-                    table_strings.append(table_str.strip())
+            # 恢复标题状态
+            self.current_headings = original_headings
+            self.active_headings = original_active
             
-            # 处理超大单元格
-            oversized_texts = []
-            for cell in oversized_cells:
-                parts = cell.split("-", 1)
-                if len(parts) == 2:
-                    oversized_texts.append(f"超大单元格内容 ({parts[0]}): {parts[1]}")
-                else:
-                    oversized_texts.append(f"超大单元格内容: {cell}")
-            
-            return table_strings, oversized_texts
+            return (
+                [str(t) for t in split_tables if t],
+                [f"{h[0]}-{h[1]}" if isinstance(h, tuple) else h for h in oversized_cells]
+            )
         except Exception as e:
             print(f"表格解析失败: {str(e)}")
             return [], []
@@ -47,62 +76,91 @@ class MarkdownParser:
     def parse_markdown_to_documents(self, content):
         print("开始解析 Markdown 文档...")
         sections = content.split('\n')
-        paragraphs = []
+        documents = []
         current_chunk = ""
+        current_prefix = ""
 
         for section in sections:
-            table_match = self.table_pattern.search(section)
-            if table_match:
+            # 处理表格
+            if (table_match := self.table_pattern.search(section)):
                 table_html = table_match.group(0)
                 print("发现表格，进行拆分处理...")
                 
-                # 解析并拆分表格
-                table_strings, oversized_texts = self.parse_markdown_table(table_html)
-                
-                # 处理当前积累的文本
+                # 处理表格前提交当前块
                 if current_chunk:
-                    paragraphs.append(current_chunk)
+                    documents.append(current_prefix + " " + current_chunk.strip())
                     current_chunk = ""
                 
-                # 添加拆分后的表格内容
-                paragraphs.extend(table_strings)
+                tables, cells = self.parse_markdown_table(table_html)
                 
-                # 添加超大单元格到正文
-                paragraphs.extend(oversized_texts)
+                # 添加带标题的表格内容
+                for table in tables:
+                    full_content = f"{current_prefix} {table}".strip()
+                    if len(full_content) <= self.chunk_size:
+                        documents.append(full_content)
+                    else:
+                        print(f"表格内容过长（{len(full_content)}字符），将进行分块处理")
+                
+                # 处理超大单元格
+                for cell in cells:
+                    full_cell = f"{current_prefix} {cell}".strip()
+                    if len(full_cell) <= self.chunk_size:
+                        documents.append(full_cell)
+                    else:
+                        print(f"超大单元格内容过长（{len(full_cell)}字符），已丢弃")
 
-            elif self.heading_pattern.match(section):
-                # 标题处理保持原有逻辑
+            # 处理标题
+            elif (heading_match := self.heading_pattern.match(section)):
+                # 提交当前块
                 if current_chunk:
-                    paragraphs.append(current_chunk)
+                    documents.append(current_prefix + " " + current_chunk.strip())
                     current_chunk = ""
-                current_chunk += section.strip() + "\n"
+                
+                level, title = heading_match.groups()
+                self._update_headings(level, title)
+                current_prefix = self._get_heading_prefix()
+                
+                # 标题自身作为独立块处理
+                if current_prefix and len(current_prefix) <= self.chunk_size:
+                    documents.append(current_prefix)
+                elif current_prefix:
+                    print(f"标题过长被截断（{len(current_prefix)}字符）")
 
-            else:
-                # 普通文本处理
-                if section.strip():
-                    current_chunk += section.strip() + "\n"
+            # 处理普通内容
+            elif section.strip():
+                # 智能拼接内容
+                new_content = section.strip()
+                chunk_candidate = f"{current_chunk} {new_content}".strip() if current_chunk else new_content
+                
+                if len(chunk_candidate) <= self.chunk_size - len(current_prefix) - 1:
+                    current_chunk = chunk_candidate
+                else:
+                    if current_chunk:
+                        documents.append(current_prefix + " " + current_chunk)
+                        current_chunk = new_content
+                    else:
+                        # 处理超长单行内容
+                        while len(new_content) > 0:
+                            take = self.chunk_size - len(current_prefix) - 1
+                            documents.append(current_prefix + " " + new_content[:take])
+                            new_content = new_content[take:]
 
-        # 处理最后剩余的文本
+        # 处理最后的内容
         if current_chunk:
-            paragraphs.append(current_chunk)
+            documents.append(current_prefix + " " + current_chunk.strip())
 
-        print("开始分块处理...")
-        documents = []
-        for paragraph in paragraphs:
-            # 合并处理表格和普通文本的分块逻辑
-            while len(paragraph) > self.chunk_size:
-                # 优先按段落分割
-                split_pos = paragraph.rfind('\n', 0, self.chunk_size)
+        print("开始最终分块处理...")
+        final_chunks = []
+        for doc in documents:
+            # 最终长度校验
+            while len(doc) > self.chunk_size:
+                split_pos = doc.rfind(' ', 0, self.chunk_size)
                 if split_pos == -1:
                     split_pos = self.chunk_size
-                
-                chunk = paragraph[:split_pos].strip()
-                if chunk:
-                    documents.append(Document(page_content=chunk))
-                paragraph = paragraph[split_pos:].lstrip()
-            
-            if paragraph.strip():
-                documents.append(Document(page_content=paragraph.strip()))
+                final_chunks.append(doc[:split_pos])
+                doc = doc[split_pos:].lstrip()
+            if doc:
+                final_chunks.append(doc)
 
-        print(f"Markdown 解析完成，共生成 {len(documents)} 个文档分块")
-        return documents
+        print(f"生成 {len(final_chunks)} 个有效分块")
+        return [Document(page_content=c) for c in final_chunks if c.strip()]

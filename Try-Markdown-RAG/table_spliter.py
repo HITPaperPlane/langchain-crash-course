@@ -152,7 +152,7 @@ if __name__ == "__main__":
         <tr><td>2</td><td>通风条件</td><td>确保空气流通，有害气体浓度符合标准</td></tr>
     </table></body></html>
     """
-    tables, big_cells = split_table(test_html, 50)
+    tables, big_cells = split_table(test_html, 190)
     print("测试案例输出:")
     print("拆分结果:")
     for table in tables:
@@ -166,7 +166,7 @@ if __name__ == "__main__":
         <tr><td>地址</td><td>ThisIsAnExtremelyLongAddressThatExceedsTheChunkSizeWhenConvertedToMarkdownFormat</td></tr>
     </table></body></html>
     """
-    tables, big_cells = split_table(html4, 30)
+    tables, big_cells = split_table(html4, 80)
     print("\n超大单元格测试:")
     print("拆分结果:")
     for table in tables:
