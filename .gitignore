@@ -23,6 +23,7 @@ db/
 # 特定项目文件
 4_rag/books/
 Try-Markdown-RAG/markdown/
+Try-Markdown-RAG/excels/
 Try-Markdown-RAG/dataset/
 markdown-structure-splitter/
 google-cloud-sdk/

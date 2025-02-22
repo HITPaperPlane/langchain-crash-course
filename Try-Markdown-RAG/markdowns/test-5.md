@@ -1,0 +1,2 @@
+这是面试者的一些资料
+<html><body><table><tr><td>姓名</td><td>性别</td><td>高考成绩</td><td>大学</td><td>颜值</td></tr><tr><td>张老三</td><td>男</td><td>699</td><td>北京大学</td><td>帅</td></tr><tr><td>李老四</td><td>男</td><td>初中毕业，没高考，没上大学</td><td></td><td>一般般</td></tr><tr><td rowspan="2">李立</td><td>男</td><td>566</td><td>石河子大学</td><td>丑</td></tr><tr><td>女</td><td>422</td><td>郑州铁路大学</td><td>大美女</td></tr></table></body></html>
