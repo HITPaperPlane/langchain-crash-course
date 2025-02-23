@@ -9,6 +9,8 @@ from transformers import AutoModel
 import torch
 from dotenv import load_dotenv
 from embeddings import CustomJinaEmbeddings
+from excel_parser import unmerge_and_save_excel
+
 # 加载环境变量
 load_dotenv()
 
@@ -59,6 +61,9 @@ def store_documents_in_db(folder_path, chunk_size=1000, overlap_size=100):
     excel_parser = ExcelParser(chunk_size=chunk_size)
 
     excel_files = [f for f in os.listdir(excel_folder) if f.endswith('.xlsx') or f.endswith('.xls')]
+    for excel_file in excel_files:
+        file_path = os.path.join(excel_folder, excel_file)
+        unmerge_and_save_excel(file_path)
     for file_name in excel_files:
         file_path = os.path.join(excel_folder, file_name)
         print(f"读取 Excel 文件: {file_name}")

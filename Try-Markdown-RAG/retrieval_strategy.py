@@ -1,48 +1,61 @@
 from rank_bm25 import BM25Okapi
 from langchain_core.documents import Document
-from typing import List
+from langchain_core.retrievers import BaseRetriever
+from typing import List, Any
+from pydantic import Field  # 新增导入
+import jieba
 
 def chinese_tokenizer(text: str) -> List[str]:
-    """中文分词器"""
-    import jieba
-    # 使用结巴分词
-    words = jieba.cut(text)
-    return [word for word in words if len(word) > 1]
+    return [word for word in jieba.cut(text) if len(word) > 1]
 
-def get_bm25_retriever(docs: List[str]):
-    """中文BM25检索器"""
-    print("初始化BM25检索器...")
-    tokenized_docs = [chinese_tokenizer(doc) for doc in docs]
-    bm25 = BM25Okapi(tokenized_docs)
-
-    def retrieve_func(query: str, n: int = 3) -> List[str]:
-        print(f"收到查询：'{query}'")
-        tokenized_query = chinese_tokenizer(query)
-        doc_scores = bm25.get_scores(tokenized_query)
-
-        sorted_indices = sorted(range(len(doc_scores)), key=lambda i: doc_scores[i], reverse=True)
-        results = [docs[i] for i in sorted_indices[:n]]
-        return results
-
-    return retrieve_func
-
-def enhanced_retrieve(query: str, db, bm25_retrieve):
-    """混合检索策略"""
-    dense_results = db.similarity_search(query, k=3)
-    sparse_results = bm25_retrieve(query, n=3)
+class BM25Retriever(BaseRetriever):
+    docs: List[str] = Field(default_factory=list)  # 显式声明字段
+    bm25: BM25Okapi = Field(init=False)  # 声明不可初始化字段
     
-    seen = set()
-    final_results = []
+    def __init__(self, docs: List[str], **kwargs):
+        # 使用 pydantic 的初始化方式
+        super().__init__(docs=docs, **kwargs)  
+        self.bm25 = BM25Okapi([chinese_tokenizer(doc) for doc in self.docs])
 
-    for doc in dense_results:
-        content = doc.page_content
-        if content not in seen:
-            seen.add(content)
-            final_results.append(doc)
+    def _get_relevant_documents(self, query: str, *, run_manager: Any) -> List[Document]:
+        tokenized_query = chinese_tokenizer(query)
+        doc_scores = self.bm25.get_scores(tokenized_query)
+        sorted_indices = sorted(
+            range(len(doc_scores)),
+            key=lambda i: doc_scores[i],
+            reverse=True
+        )
+        print("Top 3 sorted indices:", sorted_indices[:3])
+        for i in sorted_indices[:3]:
+            print(f"Document at index {i}: {self.docs[i]}")
+        return [Document(page_content=self.docs[i]) for i in sorted_indices[:3]]
 
-    for content in sparse_results:
-        if content not in seen:
-            seen.add(content)
-            final_results.append(Document(page_content=content))
+class HybridRetriever(BaseRetriever):
+    dense_retriever: BaseRetriever
+    sparse_retriever: BaseRetriever
+    
+    def _get_relevant_documents(self, query: str, *, run_manager: Any) -> List[Document]:
+        dense_docs = self.dense_retriever.get_relevant_documents(query)
+        print("Dense retriever returned documents:")
+        for doc in dense_docs:
+            print(doc.page_content)
+        sparse_docs = self.sparse_retriever.get_relevant_documents(query)
+        
+        seen = set()
+        final_docs = []
+        
+        for doc in dense_docs + sparse_docs:
+            if doc.page_content not in seen:
+                seen.add(doc.page_content)
+                final_docs.append(doc)
+        
+        return final_docs
 
-    return final_results[:3]  # 返回前3个去重结果
+def create_hybrid_retriever(db, docs: List[str]):
+    return HybridRetriever(
+        dense_retriever=db.as_retriever(
+            search_type="mmr",
+            search_kwargs={"k": 3, "lambda_mult": 0.8}
+        ),
+        sparse_retriever=BM25Retriever(docs=docs)  # 注意参数名称
+    )

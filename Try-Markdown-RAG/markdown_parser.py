@@ -3,12 +3,88 @@ from bs4 import BeautifulSoup
 from langchain.docstore.document import Document
 from table_spliter import split_table
 
+
+def unmerge_table_cells(html_table_string):
+    """
+    处理HTML表格字符串，拆分合并单元格，返回无合并单元格的HTML表格字符串。
+
+    Args:
+        html_table_string: 包含合并单元格的HTML表格字符串。
+
+    Returns:
+        没有合并单元格的HTML表格字符串。
+    """
+    soup = BeautifulSoup(html_table_string, 'html.parser')
+    table = soup.find('table')
+    if not table:
+        return html_table_string  # 如果没有找到表格，则原样返回
+
+    unmerged_rows = []
+    carry_over_cells = []
+
+    table_body = table.find('tbody') # 尝试查找 tbody
+    if table_body:
+        rows = table_body.find_all('tr') # 如果有 tbody，则在 tbody 中查找 tr
+    else:
+        rows = table.find_all('tr')      # 如果没有 tbody，则直接在 table 中查找 tr
+
+
+    for row in rows: # 使用 rows 变量
+        current_unmerged_row = []
+        current_col_index = 0
+
+        # 处理 carry-over cells
+        next_carry_over_cells = []
+        for content, remaining_rows, colspan in carry_over_cells:
+            for _ in range(colspan):
+                current_unmerged_row.append(content)
+            current_col_index += colspan
+            if remaining_rows > 1:
+                next_carry_over_cells.append((content, remaining_rows - 1, colspan))
+        carry_over_cells = next_carry_over_cells
+
+        # 处理当前行的 cells
+        cells = row.find_all('td')
+        if not cells: # 处理th的情况, 更加通用
+            cells = row.find_all('th')
+
+        for cell in cells:
+            content = cell.get_text(separator='').strip() # 使用separator=''来避免BeautifulSoup默认添加换行符
+            colspan = int(cell.get('colspan', 1))
+            rowspan = int(cell.get('rowspan', 1))
+
+            for _ in range(colspan):
+                current_unmerged_row.append(content)
+            current_col_index += colspan
+
+            if rowspan > 1:
+                carry_over_cells.append((content, rowspan - 1, colspan))
+
+        unmerged_rows.append(current_unmerged_row)
+
+    # 构建新的HTML表格
+    new_table_soup = BeautifulSoup("<html><body><table></table></body></html>", 'html.parser')
+    new_table = new_table_soup.find('table')
+
+    for unmerged_row_data in unmerged_rows:
+        new_tr = new_table_soup.new_tag('tr')
+        for cell_content in unmerged_row_data:
+            new_td = new_table_soup.new_tag('td')
+            new_td.string = cell_content
+            new_tr.append(new_td)
+        new_table.append(new_tr)
+
+    return str(new_table_soup) # 外层用html标签包裹
+
+
+
 class MarkdownParser:
     def __init__(self, chunk_size=1000, overlap_size=100):
         self.chunk_size = chunk_size
         self.overlap_size = overlap_size
         self.heading_pattern = re.compile(r'^(#+)\s*(.*)$', re.MULTILINE)
-        self.table_pattern = re.compile(r'<html>.*?<body>.*?<table>.*?</table>.*?</body>.*?</html>', re.DOTALL | re.IGNORECASE)
+        # 优化表格匹配模式，使其更加灵活
+        self.table_pattern = re.compile(r'<html>\s*<body>\s*<table>.*?</table>\s*</body>\s*</html>', re.DOTALL | re.IGNORECASE)
         self.current_headings = []  # 标题层级栈
         self.active_headings = []   # 有效标题缓存
 
@@ -58,7 +134,7 @@ class MarkdownParser:
             # 保存当前标题状态
             original_headings = self.current_headings.copy()
             original_active = self.active_headings.copy()
-            
+            table_html = unmerge_table_cells(table_html)
             split_tables, oversized_cells = split_table(table_html, self.chunk_size)
             
             # 恢复标题状态
